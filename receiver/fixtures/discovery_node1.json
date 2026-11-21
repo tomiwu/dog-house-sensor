@@ -1,0 +1,61 @@
+{
+  "dev": {
+    "identifiers": ["dog_house_1"],
+    "name": "Dog house",
+    "manufacturer": "dog-house-sensor",
+    "model": "nRF24L01+ sensor node"
+  },
+  "o": {
+    "name": "dog-house-bridge",
+    "sw_version": "0.1.0"
+  },
+  "availability_topic": "dog-house-sensor/bridge/availability",
+  "payload_available": "online",
+  "payload_not_available": "offline",
+  "cmps": {
+    "temperature": {
+      "p": "sensor",
+      "unique_id": "dog_house_1_temperature",
+      "name": "Temperature",
+      "device_class": "temperature",
+      "state_class": "measurement",
+      "unit_of_measurement": "°C",
+      "state_topic": "dog-house-sensor/1/state",
+      "value_template": "{{ value_json.temperature }}",
+      "expire_after": 2700
+    },
+    "humidity": {
+      "p": "sensor",
+      "unique_id": "dog_house_1_humidity",
+      "name": "Humidity",
+      "device_class": "humidity",
+      "state_class": "measurement",
+      "unit_of_measurement": "%",
+      "state_topic": "dog-house-sensor/1/state",
+      "value_template": "{{ value_json.humidity }}",
+      "expire_after": 2700
+    },
+    "battery": {
+      "p": "sensor",
+      "unique_id": "dog_house_1_battery",
+      "name": "Battery voltage",
+      "device_class": "voltage",
+      "state_class": "measurement",
+      "unit_of_measurement": "V",
+      "entity_category": "diagnostic",
+      "state_topic": "dog-house-sensor/1/state",
+      "value_template": "{{ value_json.battery }}",
+      "expire_after": 2700
+    },
+    "last_seen": {
+      "p": "sensor",
+      "unique_id": "dog_house_1_last_seen",
+      "name": "Last seen",
+      "device_class": "timestamp",
+      "entity_category": "diagnostic",
+      "state_topic": "dog-house-sensor/1/state",
+      "value_template": "{{ value_json.last_seen }}",
+      "expire_after": 2700
+    }
+  }
+}
