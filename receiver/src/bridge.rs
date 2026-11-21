@@ -6,6 +6,7 @@ use protocol::Packet;
 use time::OffsetDateTime;
 
 use crate::config::Config;
+use crate::link::Links;
 use crate::payload;
 
 /// Failure of an MQTT operation.
@@ -70,10 +71,11 @@ pub fn on_message(
     }
 }
 
-/// Publish the state of one reading.
+/// Publish the state of one reading, with the lost packets of the node.
 pub fn publish_state(
     mqtt: &mut dyn Mqtt,
     config: &Config,
+    links: &mut Links,
     packet: &Packet,
     last_seen: OffsetDateTime,
 ) -> Result<(), MqttError> {
@@ -81,7 +83,8 @@ pub fn publish_state(
         return Err(MqttError::UnknownNode(packet.node_id));
     }
     let topic = payload::state_topic(&config.mqtt, packet.node_id);
-    let body = payload::state_payload(packet, last_seen);
+    let lost = links.record(packet);
+    let body = payload::state_payload(packet, last_seen, lost);
     mqtt.publish(&topic, &body.to_string(), false)
 }
 
@@ -222,13 +225,42 @@ mod tests {
             prev_retries: 1,
         };
         let seen = datetime!(2026-11-21 17:22:35 UTC);
-        publish_state(&mut fake, &config(), &packet, seen).unwrap();
+        publish_state(&mut fake, &config(), &mut Links::default(), &packet, seen).unwrap();
         let (topic, payload, retain) = &fake.published[0];
         assert_eq!(topic, "dog-house-sensor/2/state");
         assert!(!retain);
         let value: Value = serde_json::from_str(payload).unwrap();
         assert_eq!(value["temperature"], 21.5);
         assert_eq!(value["seq"], 9);
+        assert_eq!(value["lost_packets"], 0);
+    }
+
+    #[test]
+    fn state_has_the_lost_packets_from_the_gaps_in_seq() {
+        let mut fake = Fake::default();
+        let mut links = Links::default();
+        let config = config();
+        let seen = datetime!(2026-11-21 17:22:35 UTC);
+        for seq in [3, 4, 8] {
+            let packet = Packet {
+                node_id: 1,
+                seq,
+                temp_dc: 215,
+                hum_dpct: 634,
+                vbat_mv: 3912,
+                status: 0,
+                prev_retries: 0,
+            };
+            publish_state(&mut fake, &config, &mut links, &packet, seen).unwrap();
+        }
+        let lost: Vec<Value> = fake
+            .published
+            .iter()
+            .map(|(_, body, _)| {
+                serde_json::from_str::<Value>(body).unwrap()["lost_packets"].clone()
+            })
+            .collect();
+        assert_eq!(lost, [0, 0, 3]);
     }
 
     #[test]
@@ -244,7 +276,7 @@ mod tests {
             prev_retries: 0,
         };
         let seen = datetime!(2026-11-21 17:22:35 UTC);
-        let result = publish_state(&mut fake, &config(), &packet, seen);
+        let result = publish_state(&mut fake, &config(), &mut Links::default(), &packet, seen);
         assert_eq!(result, Err(MqttError::UnknownNode(9)));
         assert!(fake.published.is_empty());
     }
