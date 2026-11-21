@@ -53,8 +53,8 @@ fn iso_8601(time: OffsetDateTime) -> String {
 const SENSOR_FAILED: u8 = protocol::STATUS_SENSOR_ERROR | protocol::STATUS_CHECKSUM_ERROR;
 
 /// The state JSON of one reading. `lost_packets` is the total of the node.
-/// After a sensor error, the temperature and
-/// the humidity are `null`, so that HA shows "unknown" and not a false value.
+/// After a sensor error, the temperature and the humidity are `null`, so that
+/// HA shows "unknown" and not a false value.
 pub fn state_payload(packet: &Packet, last_seen: OffsetDateTime, lost_packets: u32) -> Value {
     let valid = packet.status & SENSOR_FAILED == 0;
     let measured = |raw: f64| valid.then_some(raw / 10.0);

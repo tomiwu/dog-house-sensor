@@ -4,11 +4,11 @@ use std::collections::BTreeMap;
 
 use protocol::{Packet, STATUS_FIRST_BOOT};
 
-/// A distance in `seq` from this value up is an old or repeated packet, not a gap.
-const STALE_DISTANCE: u16 = 0x8000;
+/// A distance in `seq` from this value up is a step back, not a gap.
+const BACKWARD: u16 = 0x8000;
 
 /// Counts the lost packets of one node.
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default)]
 pub struct GapCounter {
     last_seq: Option<u16>,
     lost: u32,
@@ -18,21 +18,20 @@ impl GapCounter {
     /// Count one received packet. Returns the total of lost packets.
     ///
     /// - The `seq` is a u16 and wraps from 65535 to 0.
-    /// - The "first boot" bit means that the node restarted. The counter starts
-    ///   again from this `seq` and counts no loss for the restart.
-    /// - A duplicate or an old packet changes nothing.
+    /// - A duplicate changes nothing.
+    /// - The "first boot" bit or a step back in `seq` means that the node
+    ///   restarted. The counter starts again from this `seq` and counts no
+    ///   loss for the restart. The step back also finds a restart when the
+    ///   packet with the "first boot" bit is lost.
     pub fn record(&mut self, packet: &Packet) -> u32 {
         let restarted = packet.status & STATUS_FIRST_BOOT != 0;
-        match self.last_seq {
-            Some(last) if !restarted => {
-                let distance = packet.seq.wrapping_sub(last);
-                if distance != 0 && distance < STALE_DISTANCE {
-                    self.lost = self.lost.saturating_add(u32::from(distance - 1));
-                    self.last_seq = Some(packet.seq);
-                }
+        if let Some(last) = self.last_seq {
+            let distance = packet.seq.wrapping_sub(last);
+            if !restarted && distance != 0 && distance < BACKWARD {
+                self.lost = self.lost.saturating_add(u32::from(distance - 1));
             }
-            _ => self.last_seq = Some(packet.seq),
         }
+        self.last_seq = Some(packet.seq);
         self.lost
     }
 }
@@ -101,12 +100,6 @@ mod tests {
     }
 
     #[test]
-    fn an_old_packet_changes_nothing() {
-        assert_eq!(feed(&[10, 11, 12, 11, 13]), 0);
-        assert_eq!(feed(&[0, 1, 65535, 2]), 0);
-    }
-
-    #[test]
     fn the_first_boot_bit_restarts_the_sequence_without_loss() {
         let mut counter = GapCounter::default();
         counter.record(&packet(1, 100, 0));
@@ -124,8 +117,9 @@ mod tests {
     }
 
     #[test]
-    fn a_restart_with_a_lower_sequence_number_and_no_bit_is_an_old_packet() {
-        assert_eq!(feed(&[500, 501, 2, 502]), 0);
+    fn a_step_back_without_the_first_boot_bit_is_a_restart() {
+        assert_eq!(feed(&[500, 501, 2, 3, 5]), 1);
+        assert_eq!(feed(&[10, 0, 1]), 0);
     }
 
     #[test]
