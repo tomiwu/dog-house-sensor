@@ -19,10 +19,8 @@ pub fn out_of_band_warning(
     settings: &RadioSettings,
     allow_out_of_band: bool,
 ) -> Option<&'static str> {
-    match check_radio(settings) {
-        RadioCheck::Legal => None,
-        RadioCheck::Violations(_) => allow_out_of_band.then_some(OUT_OF_BAND_WARNING),
-    }
+    let illegal = matches!(check_radio(settings), RadioCheck::Violations(_));
+    (allow_out_of_band && illegal).then_some(OUT_OF_BAND_WARNING)
 }
 
 /// Log the warning now and then each hour on a background thread.

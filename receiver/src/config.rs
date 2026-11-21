@@ -15,7 +15,6 @@ pub const PASSWORD_ENV: &str = "DHS_MQTT_PASSWORD";
 
 const MAX_CHANNEL: i64 = 125;
 const PA_LEVELS_DBM: [i64; 4] = [-18, -12, -6, 0];
-const DEFAULT_READING_INTERVAL_S: i64 = 900;
 
 /// A configuration error: one text for each invalid value.
 #[derive(Debug, PartialEq)]
@@ -191,7 +190,7 @@ struct RawNode {
 }
 
 fn default_reading_interval() -> i64 {
-    DEFAULT_READING_INTERVAL_S
+    900
 }
 
 /// Keep the value of a field, or store its error.
@@ -208,8 +207,9 @@ fn in_range(name: &str, value: i64, min: i64, max: i64) -> Result<i64, String> {
 }
 
 fn finite(name: &str, value: f64) -> Result<f32, String> {
+    let value = value as f32;
     if value.is_finite() {
-        Ok(value as f32)
+        Ok(value)
     } else {
         Err(format!("{name} must be a finite number"))
     }
@@ -288,10 +288,14 @@ fn validate_radio(raw: RawRadio) -> Result<RadioConfig, Vec<String>> {
     );
     let data_rate = field(&mut errors, parse_data_rate(&raw.data_rate));
     let address = field(&mut errors, parse_address(&raw.address));
-    let (Some(ce_gpio), Some(channel), Some(pa_level_dbm)) = (ce_gpio, channel, pa_level) else {
-        return Err(errors);
-    };
-    let (Some(pa_gain_db), Some(antenna_gain_dbi)) = (pa_gain, antenna) else {
+    let (
+        Some(ce_gpio),
+        Some(channel),
+        Some(pa_level_dbm),
+        Some(pa_gain_db),
+        Some(antenna_gain_dbi),
+    ) = (ce_gpio, channel, pa_level, pa_gain, antenna)
+    else {
         return Err(errors);
     };
     let settings = RadioSettings {
@@ -317,8 +321,8 @@ fn validate_radio(raw: RawRadio) -> Result<RadioConfig, Vec<String>> {
     }
 }
 
-fn validate_mqtt(raw: RawMqtt, password: Option<Secret>) -> Result<MqttConfig, Vec<String>> {
-    let port = in_range("mqtt port", raw.port, 1, 65535).map_err(|text| vec![text])?;
+fn validate_mqtt(raw: RawMqtt, password: Option<Secret>) -> Result<MqttConfig, String> {
+    let port = in_range("mqtt port", raw.port, 1, 65535)?;
     Ok(MqttConfig {
         host: raw.host,
         port: port as u16,
@@ -429,9 +433,7 @@ impl Config {
         let radio = validate_radio(raw.radio)
             .map_err(|list| errors.extend(list))
             .ok();
-        let mqtt = validate_mqtt(raw.mqtt, password.flatten())
-            .map_err(|list| errors.extend(list))
-            .ok();
+        let mqtt = field(&mut errors, validate_mqtt(raw.mqtt, password.flatten()));
         let nodes = validate_nodes(raw.nodes)
             .map_err(|list| errors.extend(list))
             .ok();
@@ -461,11 +463,25 @@ mod tests {
         Config::from_toml(text, None, &no_file)
     }
 
-    fn base(radio_extra: &str) -> String {
+    const EXPIRE: &str = "expire_after_s = 2700";
+
+    fn config_text(radio: &str, mqtt: &str, node: &str) -> String {
         format!(
-            "[radio]\n{radio_extra}\n[mqtt]\nhost = \"broker.invalid\"\n\
-             [nodes.1]\nname = \"Dog house\"\nexpire_after_s = 2700\n"
+            "[radio]\n{radio}\n[mqtt]\nhost = \"broker.invalid\"\n{mqtt}\n\
+             [nodes.1]\nname = \"Dog house\"\n{node}\n"
         )
+    }
+
+    fn base(radio: &str) -> String {
+        config_text(radio, "", EXPIRE)
+    }
+
+    fn with_mqtt(mqtt: &str) -> String {
+        config_text("", mqtt, EXPIRE)
+    }
+
+    fn with_node(node: &str) -> String {
+        config_text("", "", node)
     }
 
     fn errors_of(text: &str) -> Vec<String> {
@@ -576,6 +592,14 @@ mod tests {
     }
 
     #[test]
+    fn gain_that_overflows_f32_is_rejected_even_with_the_flag() {
+        assert_error_contains(
+            &base("pa_gain_db = 1e300\nallow_out_of_band = true"),
+            "pa_gain_db must be a finite number",
+        );
+    }
+
+    #[test]
     fn pa_level_must_be_one_of_the_chip_levels() {
         for level in [-18, -12, -6, 0] {
             assert!(parse(&base(&format!("pa_level_dbm = {level}"))).is_ok());
@@ -601,23 +625,12 @@ mod tests {
         assert_error_contains(&base("address = \"ABCDEF\""), "address has 6 bytes");
     }
 
-    fn with_mqtt(extra: &str) -> String {
-        format!(
-            "[radio]\n[mqtt]\nhost = \"broker.invalid\"\n{extra}\n\
-             [nodes.1]\nname = \"Dog house\"\nexpire_after_s = 2700\n"
-        )
-    }
-
     #[test]
     fn mqtt_port_must_be_1_to_65535() {
         assert!(parse(&with_mqtt("port = 1")).is_ok());
         assert!(parse(&with_mqtt("port = 65535")).is_ok());
         assert_error_contains(&with_mqtt("port = 0"), "mqtt port is 0");
         assert_error_contains(&with_mqtt("port = 65536"), "mqtt port is 65536");
-    }
-
-    fn with_node(extra: &str) -> String {
-        format!("[radio]\n[mqtt]\nhost = \"broker.invalid\"\n[nodes.1]\nname = \"A\"\n{extra}\n")
     }
 
     #[test]
