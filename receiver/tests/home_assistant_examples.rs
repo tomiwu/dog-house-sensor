@@ -1,9 +1,10 @@
 //! The example Home Assistant files in `docs/home-assistant` (PRD 5.3, H2 and H3).
 //! The tests read the files and check the syntax and the key settings.
 
+use serde::de::DeserializeOwned;
 use yaml_serde::Value;
 
-fn load(file: &str) -> Value {
+fn load<T: DeserializeOwned>(file: &str) -> T {
     let path = format!(
         "{}/../docs/home-assistant/{file}",
         env!("CARGO_MANIFEST_DIR")
@@ -12,15 +13,16 @@ fn load(file: &str) -> Value {
     yaml_serde::from_str(&text).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
+fn text(value: &Value) -> String {
+    yaml_serde::to_string(value).unwrap()
+}
+
 fn number(value: &Value) -> f64 {
     value.as_f64().expect("a number")
 }
 
 fn automations() -> Vec<Value> {
     load("automations.yaml")
-        .as_sequence()
-        .expect("a list of automations")
-        .clone()
 }
 
 fn automation(id: &str) -> Value {
@@ -32,14 +34,13 @@ fn automation(id: &str) -> Value {
 
 #[test]
 fn helpers_allow_the_default_limits_and_keep_ui_changes() {
-    let helpers = load("helpers.yaml");
-    let numbers = &helpers["input_number"];
+    let helpers: Value = load("helpers.yaml");
     for (key, default, unit) in [
         ("dog_house_temperature_low", 0.0, "°C"),
         ("dog_house_temperature_high", 30.0, "°C"),
         ("dog_house_battery_low", 3.5, "V"),
     ] {
-        let helper = &numbers[key];
+        let helper = &helpers["input_number"][key];
         assert!(
             helper["initial"].is_null(),
             "{key}: initial resets the value at restart"
@@ -59,10 +60,7 @@ fn helpers_allow_the_default_limits_and_keep_ui_changes() {
 
 #[test]
 fn there_is_one_automation_for_each_alarm() {
-    let ids: Vec<String> = automations()
-        .iter()
-        .map(|a| a["id"].as_str().expect("id").to_string())
-        .collect();
+    let ids: Vec<Value> = automations().iter().map(|a| a["id"].clone()).collect();
     assert_eq!(
         ids,
         [
@@ -77,7 +75,7 @@ fn there_is_one_automation_for_each_alarm() {
 #[test]
 fn every_alarm_waits_before_it_fires_and_notifies() {
     for alarm in automations() {
-        let id = alarm["id"].as_str().unwrap();
+        let id = alarm["id"].as_str().expect("id");
         let triggers = alarm["triggers"].as_sequence().expect(id);
         assert!(!triggers.is_empty(), "{id}");
         for trigger in triggers {
@@ -86,52 +84,53 @@ fn every_alarm_waits_before_it_fires_and_notifies() {
                 "{id}: the trigger needs a for: time"
             );
         }
-        let text = yaml_serde::to_string(&alarm["actions"]).unwrap();
-        assert!(text.contains("notify.notify"), "{id}: {text}");
+        let actions = text(&alarm["actions"]);
+        assert!(actions.contains("notify.notify"), "{id}: {actions}");
     }
 }
 
 #[test]
 fn limit_alarms_read_the_limit_from_a_helper() {
-    for (id, helper) in [
-        (
-            "dog_house_temperature_low",
-            "input_number.dog_house_temperature_low",
-        ),
-        (
-            "dog_house_temperature_high",
-            "input_number.dog_house_temperature_high",
-        ),
-        (
-            "dog_house_battery_low",
-            "input_number.dog_house_battery_low",
-        ),
+    for id in [
+        "dog_house_temperature_low",
+        "dog_house_temperature_high",
+        "dog_house_battery_low",
     ] {
-        let text = yaml_serde::to_string(&automation(id)["triggers"]).unwrap();
-        assert!(text.contains(helper), "{id}: {text}");
+        let triggers = text(&automation(id)["triggers"]);
+        assert!(
+            triggers.contains(&format!("input_number.{id}")),
+            "{triggers}"
+        );
     }
 }
 
 #[test]
 fn the_no_data_alarm_uses_unavailable_and_last_seen_for_45_minutes() {
-    let alarm = automation("dog_house_no_data");
-    let text = yaml_serde::to_string(&alarm["triggers"]).unwrap();
-    assert!(text.contains("unavailable"), "{text}");
-    assert!(text.contains("sensor.dog_house_last_seen"), "{text}");
-    assert!(text.contains("45"), "{text}");
+    let triggers = text(&automation("dog_house_no_data")["triggers"]);
+    for part in ["unavailable", "sensor.dog_house_last_seen", "45"] {
+        assert!(triggers.contains(part), "{part}: {triggers}");
+    }
+}
+
+#[test]
+fn the_no_data_alarm_sends_one_message_when_both_triggers_fire() {
+    let conditions = text(&automation("dog_house_no_data")["conditions"]);
+    assert!(
+        conditions.contains("this.attributes.last_triggered"),
+        "{conditions}"
+    );
 }
 
 #[test]
 fn the_dashboard_shows_four_values_and_a_history_graph() {
-    let card = load("dashboard.yaml");
-    let text = yaml_serde::to_string(&card).unwrap();
-    for entity in [
+    let card = text(&load("dashboard.yaml"));
+    for part in [
         "sensor.dog_house_temperature",
         "sensor.dog_house_humidity",
         "sensor.dog_house_battery_voltage",
         "sensor.dog_house_last_seen",
+        "history-graph",
     ] {
-        assert!(text.contains(entity), "{entity}");
+        assert!(card.contains(part), "{part}: {card}");
     }
-    assert!(text.contains("history-graph"), "{text}");
 }

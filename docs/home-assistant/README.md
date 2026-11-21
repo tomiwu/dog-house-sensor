@@ -22,13 +22,18 @@ name `Dog house`:
 
 If you use another node name, replace `dog_house` in the files.
 
+The automations use the `triggers:` and `actions:` keys. They need
+Home Assistant 2024.10 or later.
+
 ## How to add the files
 
 1. Start the bridge. Check that the device `Dog house` is in HA.
 2. Helpers. Copy the text of `helpers.yaml` into `configuration.yaml`, then
    restart HA. If you already have `input_number:` there, merge the three
    helpers into it. You can also make the three helpers in the UI
-   (Settings > Devices & services > Helpers) with the same names.
+   (Settings > Devices & services > Helpers). Then set the entity ID of each
+   helper to the ID in `helpers.yaml`, for example
+   `input_number.dog_house_temperature_low`. The automations use these IDs.
 3. Set the defaults once. Open Settings > Devices & services > Helpers and set:
    low temperature `0` °C, high temperature `30` °C, low battery `3.5` V.
    HA keeps these values after a restart. The files have no `initial` on
@@ -58,7 +63,9 @@ Each alarm has a `for:` time, so a short spike does not send a message.
 
 The no data alarm has two triggers: the sensor is `unavailable` (the bridge
 sets `expire_after` to 45 minutes), or the `last_seen` time is older than
-45 minutes.
+45 minutes. When the bridge is offline, the sensor is `unavailable` at once,
+so the alarm comes after 5 minutes. When both triggers fire, a condition
+stops the second message: the alarm sends one message in 45 minutes.
 
 ## Check the files
 
