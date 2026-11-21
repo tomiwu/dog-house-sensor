@@ -1,0 +1,31 @@
+# Alarm limits for the dog house sensor (PRD 5.3, H2).
+# Change a value in the HA UI: Settings > Devices & services > Helpers.
+# Do not add "initial" to a helper. HA would reset the value to "initial" at each
+# restart, and the change in the UI would be lost. Without it, HA keeps the value.
+# Set the proposed default values once, after you add the file:
+#   low temperature 0 °C, high temperature 30 °C, low battery 3.5 V.
+input_number:
+  dog_house_temperature_low:
+    name: Dog house low temperature limit
+    icon: mdi:thermometer-low
+    min: -30
+    max: 30
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+  dog_house_temperature_high:
+    name: Dog house high temperature limit
+    icon: mdi:thermometer-high
+    min: 0
+    max: 60
+    step: 0.5
+    unit_of_measurement: "°C"
+    mode: box
+  dog_house_battery_low:
+    name: Dog house low battery limit
+    icon: mdi:battery-alert
+    min: 3.0
+    max: 4.2
+    step: 0.05
+    unit_of_measurement: "V"
+    mode: box

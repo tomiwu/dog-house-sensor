@@ -1,0 +1,18 @@
+# One dashboard card for the dog house sensor.
+# Add it in the dashboard editor: Add card > Manual, and paste this text.
+type: vertical-stack
+cards:
+  - type: entities
+    title: Dog house
+    entities:
+      - entity: sensor.dog_house_temperature
+      - entity: sensor.dog_house_humidity
+      - entity: sensor.dog_house_battery_voltage
+      - entity: sensor.dog_house_last_seen
+  - type: history-graph
+    title: Dog house, last 24 hours
+    hours_to_show: 24
+    entities:
+      - entity: sensor.dog_house_temperature
+      - entity: sensor.dog_house_humidity
+      - entity: sensor.dog_house_battery_voltage

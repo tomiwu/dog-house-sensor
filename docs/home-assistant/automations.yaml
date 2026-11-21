@@ -1,0 +1,79 @@
+# Alarms for the dog house sensor (PRD 5.3, H2 and H3).
+# The limits come from the helpers in helpers.yaml.
+# Each trigger has a for: time. The alarm fires only when the condition stays
+# true for that time, so one short spike does not send a message.
+# Replace notify.notify with your own notification service.
+- id: dog_house_temperature_low
+  alias: Dog house, temperature below the limit
+  mode: single
+  triggers:
+    - trigger: numeric_state
+      entity_id: sensor.dog_house_temperature
+      below: input_number.dog_house_temperature_low
+      for: "00:30:00"
+  actions:
+    - action: notify.notify
+      data:
+        title: Dog house is too cold
+        message: >-
+          Temperature is {{ states('sensor.dog_house_temperature') }} °C.
+          The limit is {{ states('input_number.dog_house_temperature_low') }} °C.
+
+- id: dog_house_temperature_high
+  alias: Dog house, temperature above the limit
+  mode: single
+  triggers:
+    - trigger: numeric_state
+      entity_id: sensor.dog_house_temperature
+      above: input_number.dog_house_temperature_high
+      for: "00:30:00"
+  actions:
+    - action: notify.notify
+      data:
+        title: Dog house is too hot
+        message: >-
+          Temperature is {{ states('sensor.dog_house_temperature') }} °C.
+          The limit is {{ states('input_number.dog_house_temperature_high') }} °C.
+
+- id: dog_house_battery_low
+  alias: Dog house, battery below the limit
+  mode: single
+  triggers:
+    - trigger: numeric_state
+      entity_id: sensor.dog_house_battery_voltage
+      below: input_number.dog_house_battery_low
+      for: "01:00:00"
+  actions:
+    - action: notify.notify
+      data:
+        title: Dog house battery is low
+        message: >-
+          Battery is {{ states('sensor.dog_house_battery_voltage') }} V.
+          The limit is {{ states('input_number.dog_house_battery_low') }} V.
+
+# No data for 45 minutes (3 missed readings). Two triggers cover two cases:
+# - The sensor is "unavailable". The bridge sets expire_after to 45 minutes
+#   (2700 s), so this state starts after 45 minutes without a packet.
+# - The last_seen time is more than 45 minutes old. last_seen keeps its value
+#   when data stops.
+- id: dog_house_no_data
+  alias: Dog house, no data for 45 minutes
+  mode: single
+  triggers:
+    - trigger: state
+      entity_id: sensor.dog_house_temperature
+      to: unavailable
+      for: "00:05:00"
+    - trigger: template
+      value_template: >-
+        {{ has_value('sensor.dog_house_last_seen')
+           and (now() - states('sensor.dog_house_last_seen') | as_datetime)
+               .total_seconds() > 45 * 60 }}
+      for: "00:05:00"
+  actions:
+    - action: notify.notify
+      data:
+        title: Dog house sends no data
+        message: >-
+          No packet for more than 45 minutes.
+          Last seen: {{ states('sensor.dog_house_last_seen') }}.
