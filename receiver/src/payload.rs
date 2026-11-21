@@ -49,11 +49,17 @@ fn iso_8601(time: OffsetDateTime) -> String {
         .unwrap_or_default()
 }
 
-/// The state JSON of one reading.
+/// The status bits that make the temperature and the humidity not valid.
+const SENSOR_FAILED: u8 = protocol::STATUS_SENSOR_ERROR | protocol::STATUS_CHECKSUM_ERROR;
+
+/// The state JSON of one reading. After a sensor error, the temperature and
+/// the humidity are `null`, so that HA shows "unknown" and not a false value.
 pub fn state_payload(packet: &Packet, last_seen: OffsetDateTime) -> Value {
+    let valid = packet.status & SENSOR_FAILED == 0;
+    let measured = |raw: f64| valid.then_some(raw / 10.0);
     json!({
-        "temperature": f64::from(packet.temp_dc) / 10.0,
-        "humidity": f64::from(packet.hum_dpct) / 10.0,
+        "temperature": measured(f64::from(packet.temp_dc)),
+        "humidity": measured(f64::from(packet.hum_dpct)),
         "battery": f64::from(packet.vbat_mv) / 1000.0,
         "last_seen": iso_8601(last_seen),
         "seq": packet.seq,
@@ -86,52 +92,7 @@ fn component(
 
 /// The device discovery JSON of one node.
 pub fn discovery_payload(mqtt: &MqttConfig, node_id: u8, node: &NodeConfig) -> Value {
-    let part = |key: &str, name: &str, extra: Value| {
-        (
-            key.to_owned(),
-            component(mqtt, node_id, node, key, name, extra),
-        )
-    };
-    let components: serde_json::Map<String, Value> = [
-        part(
-            "temperature",
-            "Temperature",
-            json!({
-                "device_class": "temperature",
-                "state_class": "measurement",
-                "unit_of_measurement": "°C",
-            }),
-        ),
-        part(
-            "humidity",
-            "Humidity",
-            json!({
-                "device_class": "humidity",
-                "state_class": "measurement",
-                "unit_of_measurement": "%",
-            }),
-        ),
-        part(
-            "battery",
-            "Battery voltage",
-            json!({
-                "device_class": "voltage",
-                "state_class": "measurement",
-                "unit_of_measurement": "V",
-                "entity_category": "diagnostic",
-            }),
-        ),
-        part(
-            "last_seen",
-            "Last seen",
-            json!({
-                "device_class": "timestamp",
-                "entity_category": "diagnostic",
-            }),
-        ),
-    ]
-    .into_iter()
-    .collect();
+    let sensor = |key, name, extra| component(mqtt, node_id, node, key, name, extra);
     json!({
         "dev": {
             "identifiers": [object_id(node_id)],
@@ -146,7 +107,28 @@ pub fn discovery_payload(mqtt: &MqttConfig, node_id: u8, node: &NodeConfig) -> V
         "availability_topic": availability_topic(mqtt),
         "payload_available": ONLINE,
         "payload_not_available": OFFLINE,
-        "cmps": components,
+        "cmps": {
+            "temperature": sensor("temperature", "Temperature", json!({
+                "device_class": "temperature",
+                "state_class": "measurement",
+                "unit_of_measurement": "°C",
+            })),
+            "humidity": sensor("humidity", "Humidity", json!({
+                "device_class": "humidity",
+                "state_class": "measurement",
+                "unit_of_measurement": "%",
+            })),
+            "battery": sensor("battery", "Battery voltage", json!({
+                "device_class": "voltage",
+                "state_class": "measurement",
+                "unit_of_measurement": "V",
+                "entity_category": "diagnostic",
+            })),
+            "last_seen": sensor("last_seen", "Last seen", json!({
+                "device_class": "timestamp",
+                "entity_category": "diagnostic",
+            })),
+        },
     })
 }
 
@@ -232,6 +214,42 @@ mod tests {
             state,
             golden(include_str!("../fixtures/state_node1_frost.json"))
         );
+    }
+
+    #[test]
+    fn state_after_a_sensor_error_has_no_temperature_and_humidity() {
+        let seen = datetime!(2026-11-21 17:22:35 UTC);
+        let failed = Packet {
+            status: protocol::STATUS_SENSOR_ERROR,
+            ..packet(0, 0, 3700, 77, 0)
+        };
+        assert_eq!(
+            state_payload(&failed, seen),
+            golden(include_str!("../fixtures/state_node1_sensor_error.json"))
+        );
+    }
+
+    #[test]
+    fn state_after_a_checksum_error_has_no_temperature_and_humidity() {
+        let seen = datetime!(2026-11-21 17:22:35 UTC);
+        let failed = Packet {
+            status: protocol::STATUS_CHECKSUM_ERROR | protocol::STATUS_FIRST_BOOT,
+            ..packet(215, 634, 3912, 1, 0)
+        };
+        let state = state_payload(&failed, seen);
+        assert!(state["temperature"].is_null());
+        assert!(state["humidity"].is_null());
+        assert_eq!(state["battery"], 3.912);
+    }
+
+    #[test]
+    fn first_boot_alone_keeps_the_values() {
+        let seen = datetime!(2026-11-21 17:22:35 UTC);
+        let boot = Packet {
+            status: protocol::STATUS_FIRST_BOOT,
+            ..packet(215, 634, 3912, 0, 0)
+        };
+        assert_eq!(state_payload(&boot, seen)["temperature"], 21.5);
     }
 
     #[test]

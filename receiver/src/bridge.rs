@@ -3,7 +3,6 @@
 use std::fmt;
 
 use protocol::Packet;
-use serde_json::Value;
 use time::OffsetDateTime;
 
 use crate::config::Config;
@@ -37,21 +36,12 @@ pub trait Mqtt {
     fn subscribe(&mut self, topic: &str) -> Result<(), MqttError>;
 }
 
-fn publish_json(
-    mqtt: &mut dyn Mqtt,
-    topic: &str,
-    payload: &Value,
-    retain: bool,
-) -> Result<(), MqttError> {
-    mqtt.publish(topic, &payload.to_string(), retain)
-}
-
 /// Publish the retained discovery message of each configured node.
 fn publish_discovery(mqtt: &mut dyn Mqtt, config: &Config) -> Result<(), MqttError> {
     config.nodes.iter().try_for_each(|(id, node)| {
         let topic = payload::discovery_topic(&config.mqtt, *id);
         let body = payload::discovery_payload(&config.mqtt, *id, node);
-        publish_json(mqtt, &topic, &body, true)
+        mqtt.publish(&topic, &body.to_string(), true)
     })
 }
 
@@ -73,8 +63,7 @@ pub fn on_message(
     topic: &str,
     body: &[u8],
 ) -> Result<(), MqttError> {
-    let from_ha = topic == payload::status_topic(&config.mqtt);
-    if from_ha && body == payload::ONLINE.as_bytes() {
+    if topic == payload::status_topic(&config.mqtt) && body == payload::ONLINE.as_bytes() {
         publish_discovery(mqtt, config)
     } else {
         Ok(())
@@ -92,12 +81,8 @@ pub fn publish_state(
         return Err(MqttError::UnknownNode(packet.node_id));
     }
     let topic = payload::state_topic(&config.mqtt, packet.node_id);
-    publish_json(
-        mqtt,
-        &topic,
-        &payload::state_payload(packet, last_seen),
-        false,
-    )
+    let body = payload::state_payload(packet, last_seen);
+    mqtt.publish(&topic, &body.to_string(), false)
 }
 
 #[cfg(test)]

@@ -6,7 +6,9 @@ use std::thread;
 use std::time::Duration;
 
 use protocol::Packet;
-use rumqttc::{Client, Connection, Event, LastWill, MqttOptions, Packet as MqttPacket, QoS};
+use rumqttc::{
+    Client, ClientError, Connection, Event, LastWill, MqttOptions, Packet as MqttPacket, QoS,
+};
 use time::OffsetDateTime;
 
 use crate::bridge::{self, Mqtt, MqttError};
@@ -23,7 +25,8 @@ const QUEUE_SIZE: usize = 512;
 /// A decoded packet and the time of its arrival.
 pub type Reading = (Packet, OffsetDateTime);
 
-/// The connection options: credentials and the Last Will `offline`.
+/// The connection options: credentials and the Last Will `offline`. A user
+/// name without a password is valid in MQTT, so the password can be empty.
 pub fn options(mqtt: &MqttConfig) -> MqttOptions {
     let mut options = MqttOptions::new(CLIENT_ID, &mqtt.host, mqtt.port);
     options.set_keep_alive(KEEP_ALIVE);
@@ -33,25 +36,30 @@ pub fn options(mqtt: &MqttConfig) -> MqttOptions {
         QoS::AtLeastOnce,
         true,
     ));
-    if let (Some(user), Some(password)) = (&mqtt.username, &mqtt.password) {
-        options.set_credentials(user, password.as_ref());
+    if let Some(user) = &mqtt.username {
+        let password = mqtt.password.as_ref().map_or("", AsRef::as_ref);
+        options.set_credentials(user, password);
     }
     options
 }
 
 struct Link(Client);
 
+fn client_error(error: ClientError) -> MqttError {
+    MqttError::Client(error.to_string())
+}
+
 impl Mqtt for Link {
     fn publish(&mut self, topic: &str, body: &str, retain: bool) -> Result<(), MqttError> {
         self.0
             .try_publish(topic, QoS::AtLeastOnce, retain, body)
-            .map_err(|error| MqttError::Client(error.to_string()))
+            .map_err(client_error)
     }
 
     fn subscribe(&mut self, topic: &str) -> Result<(), MqttError> {
         self.0
             .try_subscribe(topic, QoS::AtLeastOnce)
-            .map_err(|error| MqttError::Client(error.to_string()))
+            .map_err(client_error)
     }
 }
 
@@ -149,10 +157,13 @@ mod tests {
                 .credentials()
                 .is_none()
         );
-        assert!(
-            options(&mqtt(Some("bridge-user"), None))
-                .credentials()
-                .is_none()
-        );
+    }
+
+    #[test]
+    fn options_have_the_user_name_without_a_password() {
+        let options = options(&mqtt(Some("bridge-user"), None));
+        let login = options.credentials().expect("credentials");
+        assert_eq!(login.username, "bridge-user");
+        assert_eq!(login.password, "");
     }
 }
