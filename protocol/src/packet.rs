@@ -1,5 +1,7 @@
 //! The 12-byte radio payload (PRD section 6). All fields are little-endian.
 
+use core::ops::RangeInclusive;
+
 /// Version of the packet format.
 pub const FORMAT_VERSION: u8 = 1;
 /// Length of the payload in bytes.
@@ -12,10 +14,10 @@ pub const STATUS_CHECKSUM_ERROR: u8 = 1 << 1;
 /// Status bit 2: this is the first boot.
 pub const STATUS_FIRST_BOOT: u8 = 1 << 2;
 
-const TEMP_DC_RANGE: (i16, i16) = (-400, 800);
-const HUM_DPCT_MAX: u16 = 1000;
-const VBAT_MV_RANGE: (u16, u16) = (2000, 4500);
-const PREV_RETRIES_MAX: u8 = 15;
+const TEMP_DC_RANGE: RangeInclusive<i16> = -400..=800;
+const HUM_DPCT_RANGE: RangeInclusive<u16> = 0..=1000;
+const VBAT_MV_RANGE: RangeInclusive<u16> = 2000..=4500;
+const PREV_RETRIES_RANGE: RangeInclusive<u8> = 0..=15;
 
 /// One sensor reading. The version is not a field: [`encode`] always writes
 /// [`FORMAT_VERSION`] and [`decode`] rejects any other version.
@@ -57,11 +59,15 @@ pub enum PacketError {
     OutOfRange(Field),
 }
 
-fn in_range<T: PartialOrd>(value: T, (min, max): (T, T), field: Field) -> Result<(), PacketError> {
-    if value < min || value > max {
-        Err(PacketError::OutOfRange(field))
-    } else {
+fn in_range<T: PartialOrd>(
+    value: T,
+    range: RangeInclusive<T>,
+    field: Field,
+) -> Result<(), PacketError> {
+    if range.contains(&value) {
         Ok(())
+    } else {
+        Err(PacketError::OutOfRange(field))
     }
 }
 
@@ -69,9 +75,9 @@ impl Packet {
     /// Check the range of each value.
     pub fn validate(&self) -> Result<(), PacketError> {
         in_range(self.temp_dc, TEMP_DC_RANGE, Field::TempDc)?;
-        in_range(self.hum_dpct, (0, HUM_DPCT_MAX), Field::HumDpct)?;
+        in_range(self.hum_dpct, HUM_DPCT_RANGE, Field::HumDpct)?;
         in_range(self.vbat_mv, VBAT_MV_RANGE, Field::VbatMv)?;
-        in_range(self.prev_retries, (0, PREV_RETRIES_MAX), Field::PrevRetries)
+        in_range(self.prev_retries, PREV_RETRIES_RANGE, Field::PrevRetries)
     }
 }
 
@@ -180,53 +186,21 @@ mod tests {
         assert_eq!(decode(&bytes), Err(PacketError::UnknownVersion(2)));
     }
 
+    type Change = fn(&mut Packet);
+
     #[test]
-    fn decode_rejects_each_value_out_of_range() {
-        let cases = [
-            (
-                Packet {
-                    temp_dc: 801,
-                    ..sample()
-                },
-                Field::TempDc,
-            ),
-            (
-                Packet {
-                    temp_dc: -401,
-                    ..sample()
-                },
-                Field::TempDc,
-            ),
-            (
-                Packet {
-                    hum_dpct: 1001,
-                    ..sample()
-                },
-                Field::HumDpct,
-            ),
-            (
-                Packet {
-                    vbat_mv: 1999,
-                    ..sample()
-                },
-                Field::VbatMv,
-            ),
-            (
-                Packet {
-                    vbat_mv: 4501,
-                    ..sample()
-                },
-                Field::VbatMv,
-            ),
-            (
-                Packet {
-                    prev_retries: 16,
-                    ..sample()
-                },
-                Field::PrevRetries,
-            ),
+    fn encode_rejects_each_value_out_of_range() {
+        let cases: [(Change, Field); 6] = [
+            (|p| p.temp_dc = 801, Field::TempDc),
+            (|p| p.temp_dc = -401, Field::TempDc),
+            (|p| p.hum_dpct = 1001, Field::HumDpct),
+            (|p| p.vbat_mv = 1999, Field::VbatMv),
+            (|p| p.vbat_mv = 4501, Field::VbatMv),
+            (|p| p.prev_retries = 16, Field::PrevRetries),
         ];
-        for (packet, field) in cases {
+        for (change, field) in cases {
+            let mut packet = sample();
+            change(&mut packet);
             assert_eq!(encode(&packet), Err(PacketError::OutOfRange(field)));
         }
     }

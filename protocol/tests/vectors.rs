@@ -3,8 +3,10 @@
 use protocol::{Field, Packet, PacketError, decode, encode};
 use serde_json::Value;
 
-fn load() -> Value {
-    serde_json::from_str(include_str!("vectors.json")).expect("vectors.json is valid JSON")
+fn vectors(group: &str) -> Vec<Value> {
+    let all: Value =
+        serde_json::from_str(include_str!("vectors.json")).expect("vectors.json is valid JSON");
+    all[group].as_array().expect("group is an array").clone()
 }
 
 fn bytes_of(value: &Value) -> Vec<u8> {
@@ -57,8 +59,7 @@ fn error_of(value: &Value) -> PacketError {
 
 #[test]
 fn valid_vectors_decode_to_the_packet() {
-    let vectors = load();
-    for vector in vectors["valid"].as_array().unwrap() {
+    for vector in vectors("valid") {
         let name = &vector["name"];
         let decoded = decode(&bytes_of(&vector["bytes"]));
         assert_eq!(decoded, Ok(packet_of(&vector["packet"])), "{name}");
@@ -67,8 +68,7 @@ fn valid_vectors_decode_to_the_packet() {
 
 #[test]
 fn valid_vectors_encode_to_the_bytes() {
-    let vectors = load();
-    for vector in vectors["valid"].as_array().unwrap() {
+    for vector in vectors("valid") {
         let name = &vector["name"];
         let encoded = encode(&packet_of(&vector["packet"]));
         assert_eq!(
@@ -81,8 +81,7 @@ fn valid_vectors_encode_to_the_bytes() {
 
 #[test]
 fn invalid_vectors_fail_with_the_error() {
-    let vectors = load();
-    for vector in vectors["invalid"].as_array().unwrap() {
+    for vector in vectors("invalid") {
         let name = &vector["name"];
         let decoded = decode(&bytes_of(&vector["bytes"]));
         assert_eq!(decoded, Err(error_of(&vector["error"])), "{name}");

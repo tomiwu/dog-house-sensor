@@ -51,7 +51,7 @@ impl Violations {
 
     /// True if the list has no violation.
     pub fn is_empty(&self) -> bool {
-        self.items.iter().all(Option::is_none)
+        self.iter().next().is_none()
     }
 
     /// Iterate over the violations.
@@ -75,16 +75,13 @@ pub fn check_radio(settings: &RadioSettings) -> RadioCheck {
     let eirp_dbm = settings.eirp_dbm();
     let eirp = (eirp_dbm.is_nan() || eirp_dbm > MAX_EIRP_DBM)
         .then_some(Violation::EirpAboveLimit { eirp_dbm });
-    if channel.is_none() && eirp.is_none() {
+    let violations = Violations {
+        items: [channel, eirp],
+    };
+    if violations.is_empty() {
         RadioCheck::Legal
     } else {
-        RadioCheck::Violations(Violations {
-            items: if channel.is_some() {
-                [channel, eirp]
-            } else {
-                [eirp, None]
-            },
-        })
+        RadioCheck::Violations(violations)
     }
 }
 
@@ -106,11 +103,17 @@ mod tests {
         }
     }
 
-    fn violations(check: RadioCheck) -> ([Option<Violation>; 2], usize) {
-        match check {
-            RadioCheck::Legal => ([None, None], 0),
-            RadioCheck::Violations(v) => (v.items, v.len()),
+    fn violations(settings: RadioSettings) -> Violations {
+        match check_radio(&settings) {
+            RadioCheck::Legal => panic!("expected violations"),
+            RadioCheck::Violations(list) => list,
         }
+    }
+
+    fn assert_violations(settings: RadioSettings, expected: &[Violation]) {
+        let list = violations(settings);
+        assert_eq!(list.len(), expected.len());
+        assert!(list.iter().eq(expected.iter().copied()), "{list:?}");
     }
 
     #[test]
@@ -122,26 +125,26 @@ mod tests {
     fn channel_limits() {
         assert_eq!(check_radio(&settings(0, 0.0, 0.0, 2.0)), RadioCheck::Legal);
         assert_eq!(check_radio(&settings(83, 0.0, 0.0, 2.0)), RadioCheck::Legal);
-        let (items, len) = violations(check_radio(&settings(84, 0.0, 0.0, 2.0)));
-        assert_eq!(len, 1);
-        assert_eq!(items[0], Some(Violation::ChannelAboveLimit { channel: 84 }));
+        assert_violations(
+            settings(84, 0.0, 0.0, 2.0),
+            &[Violation::ChannelAboveLimit { channel: 84 }],
+        );
     }
 
     #[test]
     fn channel_108_is_a_violation() {
-        let (items, len) = violations(check_radio(&settings(108, 0.0, 0.0, 2.0)));
-        assert_eq!(len, 1);
-        assert_eq!(
-            items[0],
-            Some(Violation::ChannelAboveLimit { channel: 108 })
+        assert_violations(
+            settings(108, 0.0, 0.0, 2.0),
+            &[Violation::ChannelAboveLimit { channel: 108 }],
         );
     }
 
     #[test]
     fn pa_gain_can_break_the_eirp_limit() {
-        let (items, len) = violations(check_radio(&settings(76, 0.0, 20.0, 2.0)));
-        assert_eq!(len, 1);
-        assert_eq!(items[0], Some(Violation::EirpAboveLimit { eirp_dbm: 22.0 }));
+        assert_violations(
+            settings(76, 0.0, 20.0, 2.0),
+            &[Violation::EirpAboveLimit { eirp_dbm: 22.0 }],
+        );
     }
 
     #[test]
@@ -150,28 +153,23 @@ mod tests {
     }
 
     #[test]
-    fn both_violations_are_listed() {
-        let (items, len) = violations(check_radio(&settings(108, 0.0, 20.0, 2.0)));
-        assert_eq!(len, 2);
-        assert_eq!(
-            items[0],
-            Some(Violation::ChannelAboveLimit { channel: 108 })
+    fn both_violations_are_listed_channel_first() {
+        assert_violations(
+            settings(108, 0.0, 20.0, 2.0),
+            &[
+                Violation::ChannelAboveLimit { channel: 108 },
+                Violation::EirpAboveLimit { eirp_dbm: 22.0 },
+            ],
         );
-        assert_eq!(items[1], Some(Violation::EirpAboveLimit { eirp_dbm: 22.0 }));
     }
 
     #[test]
     fn not_a_number_is_a_violation() {
-        let (_, len) = violations(check_radio(&settings(76, f32::NAN, 0.0, 2.0)));
-        assert_eq!(len, 1);
-    }
-
-    #[test]
-    fn violations_iterate_in_order() {
-        let RadioCheck::Violations(list) = check_radio(&settings(108, 0.0, 20.0, 2.0)) else {
-            panic!("expected violations");
-        };
-        assert!(!list.is_empty());
-        assert_eq!(list.iter().count(), 2);
+        let list = violations(settings(76, f32::NAN, 0.0, 2.0));
+        assert_eq!(list.len(), 1);
+        assert!(
+            list.iter()
+                .all(|v| matches!(v, Violation::EirpAboveLimit { eirp_dbm } if eirp_dbm.is_nan()))
+        );
     }
 }
