@@ -1,0 +1,38 @@
+{
+  "description": "Golden vectors for the 12-byte radio payload (PRD section 6). The C++ node must pass the same vectors.",
+  "valid": [
+    {
+      "name": "typical reading",
+      "bytes": [1, 1, 2, 1, 215, 0, 41, 2, 228, 12, 0, 0],
+      "packet": {"node_id": 1, "seq": 258, "temp_dc": 215, "hum_dpct": 553, "vbat_mv": 3300, "status": 0, "prev_retries": 0}
+    },
+    {
+      "name": "negative temperature, max seq, error flags, max retries",
+      "bytes": [1, 1, 255, 255, 201, 255, 232, 3, 208, 7, 5, 15],
+      "packet": {"node_id": 1, "seq": 65535, "temp_dc": -55, "hum_dpct": 1000, "vbat_mv": 2000, "status": 5, "prev_retries": 15}
+    },
+    {
+      "name": "lowest temperature, highest battery, first boot",
+      "bytes": [1, 1, 0, 0, 112, 254, 0, 0, 148, 17, 4, 0],
+      "packet": {"node_id": 1, "seq": 0, "temp_dc": -400, "hum_dpct": 0, "vbat_mv": 4500, "status": 4, "prev_retries": 0}
+    },
+    {
+      "name": "highest temperature, other node",
+      "bytes": [1, 2, 0, 1, 32, 3, 0, 0, 208, 7, 0, 3],
+      "packet": {"node_id": 2, "seq": 256, "temp_dc": 800, "hum_dpct": 0, "vbat_mv": 2000, "status": 0, "prev_retries": 3}
+    }
+  ],
+  "invalid": [
+    {"name": "empty", "bytes": [], "error": {"kind": "wrong_length", "actual": 0}},
+    {"name": "11 bytes", "bytes": [1, 1, 2, 1, 215, 0, 41, 2, 228, 12, 0], "error": {"kind": "wrong_length", "actual": 11}},
+    {"name": "13 bytes", "bytes": [1, 1, 2, 1, 215, 0, 41, 2, 228, 12, 0, 0, 0], "error": {"kind": "wrong_length", "actual": 13}},
+    {"name": "version 0", "bytes": [0, 1, 2, 1, 215, 0, 41, 2, 228, 12, 0, 0], "error": {"kind": "unknown_version", "version": 0}},
+    {"name": "version 2", "bytes": [2, 1, 2, 1, 215, 0, 41, 2, 228, 12, 0, 0], "error": {"kind": "unknown_version", "version": 2}},
+    {"name": "temperature 80.1 C", "bytes": [1, 1, 2, 1, 33, 3, 41, 2, 228, 12, 0, 0], "error": {"kind": "out_of_range", "field": "temp_dc"}},
+    {"name": "temperature -40.1 C", "bytes": [1, 1, 2, 1, 111, 254, 41, 2, 228, 12, 0, 0], "error": {"kind": "out_of_range", "field": "temp_dc"}},
+    {"name": "humidity 100.1 %", "bytes": [1, 1, 2, 1, 215, 0, 233, 3, 228, 12, 0, 0], "error": {"kind": "out_of_range", "field": "hum_dpct"}},
+    {"name": "battery 1999 mV", "bytes": [1, 1, 2, 1, 215, 0, 41, 2, 207, 7, 0, 0], "error": {"kind": "out_of_range", "field": "vbat_mv"}},
+    {"name": "battery 4501 mV", "bytes": [1, 1, 2, 1, 215, 0, 41, 2, 149, 17, 0, 0], "error": {"kind": "out_of_range", "field": "vbat_mv"}},
+    {"name": "retries 16", "bytes": [1, 1, 2, 1, 215, 0, 41, 2, 228, 12, 0, 16], "error": {"kind": "out_of_range", "field": "prev_retries"}}
+  ]
+}

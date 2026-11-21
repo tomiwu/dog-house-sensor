@@ -1,17 +1,17 @@
 //! Radio packet format of the dog house sensor.
 //!
-//! The node and the bridge share this crate. Issue #2 adds the packet format.
+//! The node and the bridge share this crate. It has two parts:
+//! - [`packet`]: the 12-byte payload with `encode` and `decode` (PRD section 6).
+//! - [`radio`]: the legal check for channel and e.i.r.p. (PRD section 7.1a).
 #![no_std]
 
-/// Version of the packet format (PRD section 6).
-pub const FORMAT_VERSION: u8 = 1;
+pub mod packet;
+pub mod radio;
 
-#[cfg(test)]
-mod tests {
-    use super::FORMAT_VERSION;
-
-    #[test]
-    fn format_version_starts_at_one() {
-        assert_eq!(FORMAT_VERSION, 1);
-    }
-}
+pub use packet::{
+    FORMAT_VERSION, Field, PACKET_LEN, Packet, PacketError, STATUS_CHECKSUM_ERROR,
+    STATUS_FIRST_BOOT, STATUS_SENSOR_ERROR, decode, encode,
+};
+pub use radio::{
+    MAX_EIRP_DBM, MAX_LEGAL_CHANNEL, RadioCheck, RadioSettings, Violation, Violations, check_radio,
+};
