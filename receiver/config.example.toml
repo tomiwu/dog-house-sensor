@@ -1,0 +1,29 @@
+# Example configuration of the bridge (PRD section 8).
+# Copy to /etc/dog-house-bridge/config.toml. Do not commit your copy.
+
+[radio]
+spi_device = "/dev/spidev0.0"
+gpio_chip = "/dev/gpiochip0"
+ce_gpio = 25                # BCM GPIO25, physical pin 22
+channel = 76                # 0 to 83 is legal (2400 to 2483 MHz)
+pa_level_dbm = 0            # nRF24L01+: -18, -12, -6, 0
+pa_gain_db = 0              # extra gain of a PA+LNA module
+antenna_gain_dbi = 2
+allow_out_of_band = false   # true = research only, NOT legal in PL/EU, logs a WARNING
+data_rate = "250kbps"       # 250kbps, 1Mbps or 2Mbps
+address = "DHSN1"           # 3 to 5 bytes, same as the node
+
+[mqtt]
+host = "nvr.local"          # the NVR host name or IP address
+port = 1883
+username = "dog-house-bridge"
+# The password comes from the environment variable DHS_MQTT_PASSWORD,
+# or from this file. The file must stay outside the repository.
+password_file = "/etc/dog-house-bridge/mqtt-password"
+discovery_prefix = "homeassistant"
+base_topic = "dog-house-sensor"
+
+[nodes.1]
+name = "Dog house"
+reading_interval_s = 900    # optional, default 900 (15 minutes)
+expire_after_s = 2700       # must be above reading_interval_s (3 missed readings)
