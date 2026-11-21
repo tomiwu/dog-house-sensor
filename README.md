@@ -21,7 +21,7 @@ Planning. There is no code yet. The plan is in the GitHub issues.
 - Language: ASD-STE100 Simplified Technical English.
 - Rust wherever possible. The node language comes from the spike (see the PRD, section 7.3).
 - Never commit secrets (MQTT passwords, tokens). Use the example files and keep real values outside the repository.
-- Radio: use only nRF24 channels 0 to 83 (2400 to 2483 MHz) and a power level of 0 dBm or lower.
+- Radio: the defaults are legal (nRF24 channels 0 to 83, 2400 to 2483 MHz, max 10 mW e.i.r.p.). Other channels and power levels need `allow_out_of_band = true` and are not legal in Poland and the EU (research use only, see PRD 7.1a).
 
 ## License
 

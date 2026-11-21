@@ -73,7 +73,7 @@ Data flow:
 | N2 | The node must read temperature and humidity from the AM2302. It must obey the sensor timing (section 7.4). |
 | N3 | The node must measure the battery voltage on A0 through a voltage divider (section 7.5). |
 | N4 | The node must send one packet with: format version, node ID, sequence number, temperature, humidity, battery voltage, sensor status, and the retry count of the previous packet. |
-| N5 | The node must use the nRF24L01+ at a power level of 0 dBm or lower, at 250 kbps, on a channel from 0 to 83 (2400 to 2483 MHz). |
+| N5 | The node must use the nRF24L01+ at 250 kbps. The channel and the TX power level are build-time settings in the node configuration. Defaults: channel 76, power 0 dBm. The node build must fail for a channel above 83 or a power level above the legal limit, unless the node configuration sets `allow_out_of_band = true` (section 7.1a). |
 | N6 | The node must put the nRF24L01+ in power-down mode and the sensor power off before deep sleep. |
 | N7 | The node must not use Wi-Fi. The Wi-Fi radio stays off (for the ESP8266, wake with RF disabled). |
 | N8 | If the sensor read fails, the node must still send a packet with the error status and the battery voltage. |
@@ -88,7 +88,7 @@ Data flow:
 | B4 | The bridge must publish an HA MQTT device discovery message for each node: temperature, humidity, battery voltage, last seen, and link quality (lost packets, retries). |
 | B5 | The bridge must publish its own availability with an MQTT Last Will message, and publish the discovery messages again when HA sends `online` on `homeassistant/status`. |
 | B6 | The bridge must read all settings from a TOML configuration file. Secrets (the MQTT password) must come from an environment variable or a file outside the repository. |
-| B7 | The bridge must reject a radio channel above 83 at start (regulatory limit, section 7.1). |
+| B7 | The radio channel and the TX power level (for the acknowledgement packets) are settings in the bridge configuration. Defaults are legal: channel 76 (0 to 83 allowed), power 0 dBm. The bridge must reject a channel above 83 or a power above the legal limit, unless the configuration sets `allow_out_of_band = true`. With that flag, the bridge must log a clear WARNING at start and each hour: "Channel/power outside 2400-2483.5 MHz / 10 mW e.i.r.p. This is not legal in Poland and the EU. Research use only." (section 7.1a). |
 | B8 | The bridge must count lost packets from gaps in the sequence numbers. |
 | B9 | The bridge must run as a systemd service and start again after a failure. |
 
@@ -126,9 +126,18 @@ The `protocol` crate (`no_std`) owns this format. It has encode and decode funct
 - Annex 3 of the same recommendation allows 100 mW e.i.r.p. for wideband data transmission systems (ETSI EN 300 328, for example Wi-Fi). The strict limit for this project is 10 mW e.i.r.p.
 - Poland: the Regulation of the Minister of Digital Affairs of 9 February 2022 (Dz.U. 2022 poz. 567) lists the radio devices that you can use without a radio permit. Annex 1 covers general short range devices and Annex 2 covers wideband data transmission systems. These annexes follow ERC Recommendation 70-03. The annex tables are only in the original PDF; the 10 mW e.i.r.p. value for 2400 to 2483.5 MHz in Annex 1 is from ERC 70-03 and is not yet checked against the PDF table (to do in the issue "Bridge: configuration file and radio settings check"). Source: https://eli.gov.pl/api/acts/DU/2022/567/text.html and UKE: https://bip.uke.gov.pl/pozwolenia-radiowe/urzadzenia-niewymagajace-pozwolenia-/
 - The nRF24L01+ maximum output power is 0 dBm (1 mW). A PCB antenna has a gain of approximately 0 to 2 dBi (estimate). Thus the e.i.r.p. is approximately 1 to 1.6 mW. This is less than 10 mW. Source: nRF24L01+ Product Specification v1.0, summary at https://pcbwiki.com/parts/nrf24l01-plus
-- WARNING: the nRF24L01+ can tune from 2400 to 2525 MHz (channels 0 to 125). Many examples use channel 108 (2508 MHz). This is OUTSIDE the permitted band. Use only channels 0 to 83. The bridge rejects other values (B7).
+- WARNING: the nRF24L01+ can tune from 2400 to 2525 MHz (channels 0 to 125). Many examples use channel 108 (2508 MHz). This is OUTSIDE the permitted band. The defaults use only channels 0 to 83. Other values need the explicit flag `allow_out_of_band = true` (section 7.1a).
 - WARNING: do not use a PA+LNA nRF24 module at full power without a new check. Its output can be more than 10 mW e.i.r.p.
 - The band is shared with Wi-Fi, Bluetooth and microwave ovens. Interference is possible. The channel is configurable.
+
+### 7.1a Research mode (decision of Tomasz, 2026-11-21)
+
+This is a research project. The channel and the TX power level are configurable on the node and on the bridge.
+
+- Defaults are legal: channel 76 (2476 MHz), PA level 0 dBm (the nRF24L01+ maximum, approximately 1 to 1.6 mW e.i.r.p. with a PCB antenna).
+- Legal range without a flag: channels 0 to 83, and a power setting that gives not more than 10 mW e.i.r.p. The configuration has `antenna_gain_dbi` (default 2) and `pa_gain_db` (default 0, for a PA+LNA module). The software calculates e.i.r.p. dBm = PA level dBm + pa_gain_db + antenna_gain_dbi and compares it with 10 dBm.
+- Other values need `allow_out_of_band = true`. The software then logs a clear WARNING that the setting is not legal in Poland and the EU.
+- The operator (Tomasz) is responsible for the use of research settings.
 
 ### 7.2 nRF24L01+ facts and range
 
@@ -197,7 +206,7 @@ Notes:
 
 ### 7.6 Rust crates for the bridge (Raspberry Pi)
 
-- `rf24-rs` 0.3.1 (2025-07-22): pure Rust nRF24L01 driver, `embedded-hal` 1.0, on-air compatible with the RF24 C++ library. Use with `linux-embedded-hal` 0.4 (features `spi`, `gpio-cdev`). Sources: https://crates.io/crates/rf24-rs and https://github.com/nRF24/rf24-rs
+- `rf24-rs` 0.3.1 (2025-07-22): pure Rust nRF24L01 driver, `embedded-hal` 1.0, on-air compatible with the RF24 C++ library. Use with `linux-embedded-hal` (0.4 in the examples, 0.5.0 is the newest; features `spi`, `gpio-cdev`). Sources: https://crates.io/crates/rf24-rs and https://github.com/nRF24/rf24-rs
 - `nrf24l01` 0.2.0: older Linux-only driver (spidev + sysfs GPIO, optional `rppal`). Not selected, because it is old and uses sysfs GPIO. Source: https://github.com/rtxm/rust-nrf24l01
 - `rppal`: Raspberry Pi GPIO/SPI access. SPI0 pins: MOSI GPIO10 (pin 19), MISO GPIO9 (pin 21), SCLK GPIO11 (pin 23), CE0 GPIO8 (pin 24). Enable SPI with `dtparam=spi=on`. Source: https://docs.rs/rppal/latest/rppal/spi/index.html
 - `rumqttc` 0.25.1 (2025-11-21): MQTT client. Source: https://crates.io/crates/rumqttc
@@ -222,7 +231,11 @@ File `/etc/dog-house-bridge/config.toml` (example in `receiver/config.example.to
 spi_device = "/dev/spidev0.0"
 gpio_chip = "/dev/gpiochip0"
 ce_gpio = 25            # BCM GPIO25, physical pin 22
-channel = 76            # 0..=83 only (2400-2483 MHz)
+channel = 76            # 0..=83 is legal (2400-2483 MHz)
+pa_level_dbm = 0        # nRF24L01+: -18, -12, -6, 0
+pa_gain_db = 0          # extra gain of a PA+LNA module
+antenna_gain_dbi = 2
+allow_out_of_band = false   # true = research only, NOT legal in PL/EU, logs a WARNING
 data_rate = "250kbps"
 address = "DHSN1"       # 5 bytes, same as the node
 
