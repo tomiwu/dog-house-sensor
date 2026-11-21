@@ -1,9 +1,12 @@
 //! Raspberry Pi bridge for the dog house sensor.
 //!
-//! Issues #5 and #6 add the radio and MQTT.
+//! The bridge connects to MQTT and publishes the readings. Issue #5 adds the radio.
 #![forbid(unsafe_code)]
 
+mod bridge;
+mod broker;
 mod config;
+mod payload;
 mod research;
 
 use std::path::PathBuf;
@@ -31,7 +34,10 @@ fn main() -> ExitCode {
             if let Some(warning) = config.radio.warning() {
                 research::spawn_hourly_warning(warning);
             }
-            ExitCode::SUCCESS
+            let (readings_tx, readings_rx) = std::sync::mpsc::channel();
+            broker::run(config, readings_rx);
+            drop(readings_tx);
+            ExitCode::FAILURE
         }
         Err(error) => {
             eprintln!("error: {error}");
