@@ -9,6 +9,8 @@ repository.workspace = true
 
 [dependencies]
 protocol = { path = "../protocol" }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.2.2"
 
 [lints]
 workspace = true

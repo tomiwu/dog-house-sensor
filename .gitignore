@@ -21,6 +21,9 @@ secrets.toml
 config.toml
 !**/config.example.toml
 mqtt-password
+*-password
+*.password
+password
 *.pem
 *.key
 
