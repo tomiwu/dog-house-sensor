@@ -1,0 +1,25 @@
+# Rust
+/target/
+**/target/
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Secrets: never commit
+.env
+*.env
+.sandcastle/.env
+secrets.toml
+config.toml
+!**/config.example.toml
+mqtt-password
+*.pem
+*.key
