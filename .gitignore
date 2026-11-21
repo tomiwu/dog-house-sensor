@@ -23,3 +23,10 @@ config.toml
 mqtt-password
 *.pem
 *.key
+
+# Sandcastle loop
+node_modules/
+.sandcastle/.env
+.sandcastle/logs/
+.sandcastle/worktrees/
+.sandcastle/context/
