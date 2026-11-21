@@ -13,6 +13,7 @@ use time::OffsetDateTime;
 
 use crate::bridge::{self, Mqtt, MqttError};
 use crate::config::{Config, MqttConfig};
+use crate::link::Links;
 use crate::payload;
 
 /// MQTT client identifier of the bridge.
@@ -70,8 +71,11 @@ fn log_failure(result: Result<(), MqttError>) {
 }
 
 fn publish_readings(link: &mut Link, config: &Config, readings: &Receiver<Reading>) {
+    let mut links = Links::default();
     for (packet, seen) in readings {
-        log_failure(bridge::publish_state(link, config, &packet, seen));
+        log_failure(bridge::publish_state(
+            link, config, &mut links, &packet, seen,
+        ));
     }
 }
 

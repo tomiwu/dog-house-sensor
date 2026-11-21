@@ -6,6 +6,7 @@
 mod bridge;
 mod broker;
 mod config;
+mod link;
 mod payload;
 mod research;
 

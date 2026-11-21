@@ -52,9 +52,10 @@ fn iso_8601(time: OffsetDateTime) -> String {
 /// The status bits that make the temperature and the humidity not valid.
 const SENSOR_FAILED: u8 = protocol::STATUS_SENSOR_ERROR | protocol::STATUS_CHECKSUM_ERROR;
 
-/// The state JSON of one reading. After a sensor error, the temperature and
-/// the humidity are `null`, so that HA shows "unknown" and not a false value.
-pub fn state_payload(packet: &Packet, last_seen: OffsetDateTime) -> Value {
+/// The state JSON of one reading. `lost_packets` is the total of the node.
+/// After a sensor error, the temperature and the humidity are `null`, so that
+/// HA shows "unknown" and not a false value.
+pub fn state_payload(packet: &Packet, last_seen: OffsetDateTime, lost_packets: u32) -> Value {
     let valid = packet.status & SENSOR_FAILED == 0;
     let measured = |raw: f64| valid.then_some(raw / 10.0);
     json!({
@@ -64,8 +65,14 @@ pub fn state_payload(packet: &Packet, last_seen: OffsetDateTime) -> Value {
         "last_seen": iso_8601(last_seen),
         "seq": packet.seq,
         "retries": packet.prev_retries,
+        "lost_packets": lost_packets,
     })
 }
+
+/// Key of the sensor that keeps its value when data stops. It has no
+/// `expire_after`, so that an HA automation can compare it with the time now
+/// ("no data for 45 minutes", PRD H3).
+const LAST_SEEN: &str = "last_seen";
 
 /// One sensor component. `extra` holds the fields that differ between sensors.
 fn component(
@@ -82,8 +89,10 @@ fn component(
         "name": name,
         "state_topic": state_topic(mqtt, node_id),
         "value_template": format!("{{{{ value_json.{key} }}}}"),
-        "expire_after": node.expire_after_s,
     });
+    if key != LAST_SEEN {
+        value["expire_after"] = json!(node.expire_after_s);
+    }
     if let (Some(target), Value::Object(fields)) = (value.as_object_mut(), extra) {
         target.extend(fields);
     }
@@ -124,8 +133,16 @@ pub fn discovery_payload(mqtt: &MqttConfig, node_id: u8, node: &NodeConfig) -> V
                 "unit_of_measurement": "V",
                 "entity_category": "diagnostic",
             })),
-            "last_seen": sensor("last_seen", "Last seen", json!({
+            "last_seen": sensor(LAST_SEEN, "Last seen", json!({
                 "device_class": "timestamp",
+                "entity_category": "diagnostic",
+            })),
+            "lost_packets": sensor("lost_packets", "Lost packets", json!({
+                "state_class": "total_increasing",
+                "entity_category": "diagnostic",
+            })),
+            "retries": sensor("retries", "Radio retries", json!({
+                "state_class": "measurement",
                 "entity_category": "diagnostic",
             })),
         },
@@ -202,14 +219,14 @@ mod tests {
     #[test]
     fn state_matches_the_golden_file() {
         let seen = datetime!(2026-11-21 17:22:35 UTC);
-        let state = state_payload(&packet(215, 634, 3912, 4242, 2), seen);
+        let state = state_payload(&packet(215, 634, 3912, 4242, 2), seen, 7);
         assert_eq!(state, golden(include_str!("../fixtures/state_node1.json")));
     }
 
     #[test]
     fn state_with_negative_temperature_and_extreme_values_matches_the_golden_file() {
         let seen = datetime!(2026-01-02 03:04:05 UTC);
-        let state = state_payload(&packet(-123, 1000, 3500, 0, 15), seen);
+        let state = state_payload(&packet(-123, 1000, 3500, 0, 15), seen, 0);
         assert_eq!(
             state,
             golden(include_str!("../fixtures/state_node1_frost.json"))
@@ -224,7 +241,7 @@ mod tests {
             ..packet(0, 0, 3700, 77, 0)
         };
         assert_eq!(
-            state_payload(&failed, seen),
+            state_payload(&failed, seen, 0),
             golden(include_str!("../fixtures/state_node1_sensor_error.json"))
         );
     }
@@ -236,7 +253,7 @@ mod tests {
             status: protocol::STATUS_CHECKSUM_ERROR | protocol::STATUS_FIRST_BOOT,
             ..packet(215, 634, 3912, 1, 0)
         };
-        let state = state_payload(&failed, seen);
+        let state = state_payload(&failed, seen, 0);
         assert!(state["temperature"].is_null());
         assert!(state["humidity"].is_null());
         assert_eq!(state["battery"], 3.912);
@@ -249,13 +266,13 @@ mod tests {
             status: protocol::STATUS_FIRST_BOOT,
             ..packet(215, 634, 3912, 0, 0)
         };
-        assert_eq!(state_payload(&boot, seen)["temperature"], 21.5);
+        assert_eq!(state_payload(&boot, seen, 0)["temperature"], 21.5);
     }
 
     #[test]
     fn last_seen_has_no_fraction_and_uses_utc() {
         let seen = datetime!(2026-11-21 18:22:35.987654 +1);
-        let state = state_payload(&packet(0, 0, 3000, 1, 0), seen);
+        let state = state_payload(&packet(0, 0, 3000, 1, 0), seen, 0);
         assert_eq!(state["last_seen"], "2026-11-21T17:22:35Z");
     }
 
@@ -269,6 +286,18 @@ mod tests {
     }
 
     #[test]
+    fn link_sensors_are_diagnostic_and_read_the_state() {
+        let payload = discovery_payload(&mqtt(), 1, &node());
+        for key in ["lost_packets", "retries", "last_seen"] {
+            let component = &payload["cmps"][key];
+            assert_eq!(component["entity_category"], "diagnostic", "{key}");
+            let template = format!("{{{{ value_json.{key} }}}}");
+            assert_eq!(component["value_template"], template.as_str(), "{key}");
+        }
+        assert_eq!(payload["cmps"]["last_seen"]["device_class"], "timestamp");
+    }
+
+    #[test]
     fn discovery_uses_expire_after_and_names_from_the_configuration() {
         let node = NodeConfig {
             name: "Kennel".into(),
@@ -279,7 +308,12 @@ mod tests {
         assert_eq!(payload["dev"]["name"], "Kennel");
         assert_eq!(payload["dev"]["identifiers"][0], "dog_house_3");
         for (key, component) in payload["cmps"].as_object().unwrap() {
-            assert_eq!(component["expire_after"], 300, "{key}");
+            let expire = &component["expire_after"];
+            if key == "last_seen" {
+                assert!(expire.is_null(), "{key}");
+            } else {
+                assert_eq!(expire, 300, "{key}");
+            }
             assert_eq!(
                 component["state_topic"], "dog-house-sensor/3/state",
                 "{key}"
