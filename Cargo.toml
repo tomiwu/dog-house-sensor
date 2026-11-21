@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+members = ["protocol", "receiver"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.100"
+license = "MIT"
+repository = "https://github.com/tomiwu/dog-house-sensor"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }

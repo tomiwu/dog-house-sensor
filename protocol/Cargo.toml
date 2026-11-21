@@ -1,0 +1,11 @@
+[package]
+name = "protocol"
+version = "0.1.0"
+description = "Radio packet format of the dog house sensor (no_std)."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
